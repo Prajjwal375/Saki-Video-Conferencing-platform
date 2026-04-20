@@ -24,7 +24,7 @@ const io = new Server(server, {
 connectToSocket(io);
 
 const ALLOWED_ORIGINS = [
-    "http://localhost:5173",
+    "http://host:5173",
     "http://localhost:3000",
     process.env.CORS_ORIGIN,          // set this to https://yourdomain.com on deploy
 ].filter(Boolean);
