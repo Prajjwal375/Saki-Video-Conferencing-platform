@@ -1,2 +1,24 @@
-Frontend/node-modules
-Backend/node-modules
+# Dependencies
+node_modules/
+FRONTEND/node_modules/
+Backend/node_modules/
+
+# Environment variables — NEVER commit these
+.env
+.env.local
+.env.production
+FRONTEND/.env
+.local
+Backend/.env
+
+# Build output
+FRONTEND/dist/
+FRONTEND/build/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db

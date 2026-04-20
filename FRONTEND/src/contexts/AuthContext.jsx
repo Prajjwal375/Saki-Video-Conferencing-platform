@@ -2,107 +2,101 @@ import axios from "axios";
 import httpStatus from "http-status";
 import { createContext, useContext, useState } from "react";
 import { useNavigate } from "react-router-dom";
-// import server from "../environment";
-
-
 
 export const AuthContext = createContext();
 
+const serverUrl = import.meta.env.VITE_SERVER_URL || "http://localhost:8000";
+
 const client = axios.create({
-    baseURL: "http://localhost:8000/api/v1/users"
-})
+    baseURL: `${serverUrl}/api/v1/users`
+});
 
 
 export const AuthProvider = ({ children }) => {
-
-    // const authContext = useContext(AuthContext);
-
-
     const [userData, setUserData] = useState(null);
-    // const [userData, setUserData] = useState(authContext);
-
-
     const router = useNavigate();
 
+    // ── Standard register ────────────────────────────────────────────────────
     const handleRegister = async (name, username, password) => {
         try {
-            let request = await client.post("/register", {
-                name: name,
-                username: username,
-                password: password
-            })
-
-
+            const request = await client.post("/register", { name, username, password });
             if (request.status === httpStatus.CREATED) {
                 return request.data.message;
             }
         } catch (err) {
             throw err;
         }
-    }
+    };
 
+    // ── Standard login ───────────────────────────────────────────────────────
     const handleLogin = async (username, password) => {
         try {
-            let request = await client.post("/login", {
-                username: username,
-                password: password
-            });
-
-            console.log(username, password)
-            console.log(request.data)
-
+            const request = await client.post("/login", { username, password });
             if (request.status === httpStatus.OK) {
                 localStorage.setItem("token", request.data.token);
-                // const roomId = Math.random().toString(36).substring(2, 8);
-                // router(`/room/${roomId}`);
-                router("/home");
+                if (request.data.name)   localStorage.setItem("userName", request.data.name);
+                if (request.data.avatar) localStorage.setItem("userAvatar", request.data.avatar);
+                const redirect = sessionStorage.getItem("redirectAfterLogin") || "/home";
+                sessionStorage.removeItem("redirectAfterLogin");
+                router(redirect);
             }
         } catch (err) {
             throw err;
         }
-    }
+    };
 
-    const getHistoryOfUser = async () => {
+    // ── Google login ─────────────────────────────────────────────────────────
+    const handleGoogleLogin = async (accessToken, userInfo) => {
         try {
-            let request = await client.get("/get_all_activity", {
-                params: {
-                    token: localStorage.getItem("token")
-                }
-            });
-            return request.data
-        } catch
-         (err) {
+            const request = await client.post("/google-login", { accessToken, userInfo });
+            if (request.status === httpStatus.OK) {
+                localStorage.setItem("token",      request.data.token);
+                localStorage.setItem("userName",   request.data.name);
+                localStorage.setItem("userAvatar", request.data.avatar || "");
+                const redirect = sessionStorage.getItem("redirectAfterLogin") || "/home";
+                sessionStorage.removeItem("redirectAfterLogin");
+                router(redirect);
+            }
+        } catch (err) {
             throw err;
         }
-    }
+    };
+
+    // ── History ──────────────────────────────────────────────────────────────
+    const getHistoryOfUser = async () => {
+        try {
+            const request = await client.get("/get_all_activity", {
+                params: { token: localStorage.getItem("token") },
+            });
+            return request.data;
+        } catch (err) {
+            throw err;
+        }
+    };
 
     const addToUserHistory = async (meetingCode) => {
         try {
-            let request = await client.post("/add_to_activity", {
+            const request = await client.post("/add_to_activity", {
                 token: localStorage.getItem("token"),
-                meeting_code: meetingCode
+                meeting_code: meetingCode,
             });
-            return request
+            return request;
         } catch (e) {
             throw e;
         }
-    }
-
+    };
 
     const data = {
-        userData, setUserData, addToUserHistory, getHistoryOfUser, handleRegister, handleLogin
-    }
-
-  
+        userData, setUserData,
+        handleRegister, handleLogin, handleGoogleLogin,
+        getHistoryOfUser, addToUserHistory,
+    };
 
     return (
         <AuthContext.Provider value={data}>
             {children}
         </AuthContext.Provider>
-    )
-
-}
-
-  export const useAuth = () => {
-    return useContext(AuthContext);
+    );
 };
+
+export const useAuth = () => useContext(AuthContext);

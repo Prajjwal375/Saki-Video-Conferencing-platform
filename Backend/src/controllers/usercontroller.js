@@ -4,8 +4,7 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { Meeting } from "../models/meetingmodel.js";
 
-
-// LOGIN USER
+// ─── LOGIN USER ───────────────────────────────────────────────────────────────
 const login = async (req, res) => {
     const { username, password } = req.body;
 
@@ -24,6 +23,12 @@ const login = async (req, res) => {
             });
         }
 
+        if (user.authProvider === "google") {
+            return res.status(httpStatus.BAD_REQUEST).json({
+                message: "This account uses Google Sign-In. Please use the Google button.",
+            });
+        }
+
         const isPasswordCorrect = await bcrypt.compare(password, user.password);
 
         if (!isPasswordCorrect) {
@@ -39,6 +44,8 @@ const login = async (req, res) => {
         return res.status(httpStatus.OK).json({
             message: "Login successful",
             token,
+            name: user.name,
+            avatar: user.avatar,
         });
     } catch (e) {
         return res.status(httpStatus.INTERNAL_SERVER_ERROR).json({
@@ -47,7 +54,7 @@ const login = async (req, res) => {
     }
 };
 
-// REGISTER USER
+// ─── REGISTER USER ────────────────────────────────────────────────────────────
 const register = async (req, res) => {
     const { name, username, password } = req.body;
 
@@ -62,7 +69,7 @@ const register = async (req, res) => {
 
         if (existingUser) {
             return res.status(httpStatus.CONFLICT).json({
-                message: "User already exists",
+                message: "Username already taken",
             });
         }
 
@@ -72,12 +79,13 @@ const register = async (req, res) => {
             name,
             username,
             password: hashedPassword,
+            authProvider: "local",
         });
 
         await newUser.save();
 
         return res.status(httpStatus.CREATED).json({
-            message: "User registered successfully",
+            message: "Account created successfully! Please sign in.",
         });
     } catch (error) {
         return res.status(httpStatus.INTERNAL_SERVER_ERROR).json({
@@ -86,26 +94,96 @@ const register = async (req, res) => {
     }
 };
 
+// ─── GOOGLE LOGIN ─────────────────────────────────────────────────────────────
+// Frontend sends: { accessToken, userInfo: { sub, email, name, picture } }
+// We verify the access token against Google's tokeninfo endpoint,
+// then find-or-create the user in MongoDB.
+const googleLogin = async (req, res) => {
+    const { accessToken, userInfo } = req.body;
+
+    if (!accessToken || !userInfo) {
+        return res.status(httpStatus.BAD_REQUEST).json({
+            message: "Google accessToken and userInfo are required",
+        });
+    }
+
+    try {
+        // Verify access token with Google tokeninfo endpoint
+        const verifyRes = await fetch(
+            `https://www.googleapis.com/oauth2/v1/tokeninfo?access_token=${accessToken}`
+        );
+        const verifyData = await verifyRes.json();
+
+        if (verifyData.error) {
+            return res.status(httpStatus.UNAUTHORIZED).json({
+                message: "Invalid Google access token",
+            });
+        }
+
+        const { sub: googleId, email, name, picture } = userInfo;
+
+        // Sanitize email prefix → username
+        const baseUsername = email.split("@")[0].replace(/[^a-zA-Z0-9_]/g, "_");
+
+        // Find by googleId first, then by email as fallback
+        let user = await User.findOne({ googleId });
+
+        if (!user) {
+            // Check if someone already registered with that username
+            const existing = await User.findOne({ username: baseUsername });
+            const finalUsername = existing ? `${baseUsername}_g` : baseUsername;
+
+            user = new User({
+                name,
+                username: finalUsername,
+                googleId,
+                avatar: picture || null,
+                authProvider: "google",
+                password: null,
+            });
+            await user.save();
+        } else {
+            // Keep avatar up to date
+            if (picture && user.avatar !== picture) {
+                user.avatar = picture;
+            }
+        }
+
+        const token = crypto.randomBytes(20).toString("hex");
+        user.token = token;
+        await user.save();
+
+        return res.status(httpStatus.OK).json({
+            message: "Google login successful",
+            token,
+            name: user.name,
+            username: user.username,
+            avatar: user.avatar,
+        });
+    } catch (e) {
+        console.error("Google login error:", e.message);
+        return res.status(httpStatus.INTERNAL_SERVER_ERROR).json({
+            message: `Something went wrong: ${e.message}`,
+        });
+    }
+};
+
+// ─── GET USER HISTORY ─────────────────────────────────────────────────────────
 const getUserHistory = async (req, res) => {
     const { token } = req.query;
 
     if (!token) {
-        return res.status(httpStatus.BAD_REQUEST).json({
-            message: "Token is required",
-        });
+        return res.status(httpStatus.BAD_REQUEST).json({ message: "Token is required" });
     }
 
     try {
         const user = await User.findOne({ token });
 
         if (!user) {
-            return res.status(httpStatus.UNAUTHORIZED).json({
-                message: "Invalid token",
-            });
+            return res.status(httpStatus.UNAUTHORIZED).json({ message: "Invalid token" });
         }
 
         const meetings = await Meeting.find({ user_id: user.username });
-
         return res.status(httpStatus.OK).json(meetings);
     } catch (e) {
         return res.status(httpStatus.INTERNAL_SERVER_ERROR).json({
@@ -114,6 +192,7 @@ const getUserHistory = async (req, res) => {
     }
 };
 
+// ─── ADD TO HISTORY ───────────────────────────────────────────────────────────
 const addToHistory = async (req, res) => {
     const { token, meeting_code } = req.body;
 
@@ -127,9 +206,7 @@ const addToHistory = async (req, res) => {
         const user = await User.findOne({ token });
 
         if (!user) {
-            return res.status(httpStatus.UNAUTHORIZED).json({
-                message: "Invalid token",
-            });
+            return res.status(httpStatus.UNAUTHORIZED).json({ message: "Invalid token" });
         }
 
         const newMeeting = new Meeting({
@@ -139,9 +216,7 @@ const addToHistory = async (req, res) => {
 
         await newMeeting.save();
 
-        return res.status(httpStatus.CREATED).json({
-            message: "Added code to history",
-        });
+        return res.status(httpStatus.CREATED).json({ message: "Added code to history" });
     } catch (e) {
         return res.status(httpStatus.INTERNAL_SERVER_ERROR).json({
             message: `Something went wrong: ${e.message}`,
@@ -149,4 +224,4 @@ const addToHistory = async (req, res) => {
     }
 };
 
-export { login, register, getUserHistory, addToHistory };
+export { login, register, googleLogin, getUserHistory, addToHistory };
