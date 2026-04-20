@@ -5,7 +5,7 @@ import { useNavigate } from "react-router-dom";
 
 export const AuthContext = createContext();
 
-const serverUrl = import.meta.env.VITE_SERVER_URL || "http://localhost:8000";
+const serverUrl = "https://saki-video-backend.onrender.com";
 
 const client = axios.create({
     baseURL: `${serverUrl}/api/v1/users`
